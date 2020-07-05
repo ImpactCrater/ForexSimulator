@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>FXSimulator</title>
+</head>
+<body style="background-color: #282828; color: #cccccc">
+
+<div id="contentDiv" style="font-size: medium">
+<div id = "canvasDiv" style="text-align: center; color: #cccccc">
+<canvas id = "canvas1"></canvas><br />
+</div>
+</div>
+
+
+<div id = "textArea" style = "display: grid; grid-template-rows: auto auto auto auto; grid-template-columns: max-content max-content; justify-content: center; grid-gap: 16px 16px; text-align: center">
+
+<div style = "grid-row: 1/2; grid-column: 1/3">
+Please fill in the values and click the buttons.<br />
+<form>
+Historical volatility: <input type="text" id = "historicalVolatilityInputArea" size = "6">%/year
+<label><input type="radio" name="radioButtonOfTimeScale" value="Days" checked="checked">Days</label>
+<label><input type="radio" name="radioButtonOfTimeScale" value="Hours">Hours</label>
+<label><input type="radio" name="radioButtonOfTimeScale" value="Minutes">Minutes</label><br />
+Current value: <input type="text" id = "currentAskRateInputArea" size = "6">
+Spread: <input type="text" id = "spreadInputArea" size = "6">pips<br />
+First stop order target width: <input type="text" id = "firstStopOrderTargetWidthInputArea" size = "6">pips<br />
+Second limit order target width: <input type="text" id = "secondLimitOrderTargetWidthInputArea" size = "6">pips<br />
+Second stop order target width: <input type="text" id = "secondStopOrderTargetWidthInputArea" size = "6">pips<br />
+</form>
+<button id = "buttounToGenerateChart" >Regenerate Chart</button>
+<button id = "buttounToCalculateValue" >Calculate Value</button>
+<button id = "buttounToSimulateProfitAndLoss">Simulate Profit and Loss</button>
+</div>
+
+
+<div style = "grid-row: 2/3; grid-column: 1/2">
+<form>
+Sell:<br />
+First stop order target value: <input type="text" id = "sellFirstStopOrderTargetBidRateOutputArea" size = "6" readonly="readonly"><br />
+Second Limit order target value: <input type="text" id = "sellSecondLimitOrderTargetAskRateOutputArea" size = "6" readonly="readonly"><br />
+Second Stop order target value: <input type="text" id = "sellSecondStopOrderTargetAskRateOutputArea" size = "6" readonly="readonly">
+</form>
+</div>
+
+<div style = "grid-row: 2/3; grid-column: 2/3">
+<form>
+Buy:<br />
+First stop order target value: <input type="text" id = "buyFirstStopOrderTargetAskRateOutputArea" size = "6" readonly="readonly"><br />
+Second Limit order target value: <input type="text" id = "buySecondLimitOrderTargetBidRateOutputArea" size = "6" readonly="readonly"><br />
+Second Stop order target value: <input type="text" id = "buySecondStopOrderTargetBidRateOutputArea" size = "6" readonly="readonly">
+</form>
+</div>
+
+<div style = "grid-row: 3/4; grid-column: 1/3">
+<form>
+<textarea id = "textOutputArea" rows = "4" cols = "64"></textarea>
+</form>
+</div>
+
+</div>
+
+<div id = "description1" style = "text-align: left; max-width: 720px; margin: 0 auto; font-size: 80%">
+<strong><span style="color:#4080CE;">FXトレード</span>をシミュレーションするウェブ アプリケーション</strong>です。<br />
+
+<span style="color:#CE4C4C;">もしも何か問題が生じても私は一切責任を取れませんので御了承下さいませ。</span><br />
+<br />
+・幾何ランダム ウォークによる擬似相場を生成。<br />
+・ヒストリカル ヴォラティリティーに対応。<br />
+・1日足、1時間足、1分足のローソク足チャートを表示。<br />
+・5単純移動平均線、21単純移動平均線を表示。<br />
+・複合注文である、IFO(IFDOCO)注文で両建てした場合をシミュレート。<br />
+・スプレッドを考慮した各期間の損益計算が可能。<br />
+<br />
+
+[このプログラムについて]<br />
+ソースコード: <a href="https://github.com/ImpactCrater/ForexSimulator" target="_blank">https://github.com/ImpactCrater/ForexSimulator</a>
+<br />
+" <strong>HTML5</strong> " の " <strong>Canvas</strong> " 要素を利用して画面の描画をしております。<br />
+このプログラムのコードは全てブログ記事のHTML文書内に " <strong>JavaScript</strong> " で記述したものであり、作成するに当たってテキスト エディターとウェブ ブラウザー以外は何も使用しておりません。<br />
+追加のライブラリーなどは一切使用せず、純粋にHTML5対応ブラウザーだけで動作致します。<br />
+
+<br />
+</div>
+
+<script type = "text/javascript">
+
+
+// 他のファイルのグローバル変数とこのファイルのグローバル変数の衝突を避ける為に、コンストラクターでモジュール全体のスコープを形成し、即時実行する。
+/** @constructor */
+let globalObjectOfThisProgram = function()
+{
+///////////////////////////////////////////////////////
+
+let canvasAreaWidth = 0;
+let canvasAreaHeight = 0;
+
+let divElementOfCanvas;
+let canvasContext;
+let canvasLayer1; // 背景描画用。
+let canvasLayer2; // 相場チャート描画用。
+let canvasLayer3; // 損益グラフ描画用。
+let canvasLayer4;
+let canvasForTemporaryUseLayer1;
+let canvasContextLayer1;
+let canvasContextLayer2;
+let canvasContextLayer3;
+let canvasContextLayer4;
+let canvasContextForTemporaryUseLayer1;
+
+let timeScale = "";
+let totalDuration = "";
+let volatility = 0;
+// 1年間のヒストリカル ヴォラティリティーのパーセンテージ。
+// 期間後の価格が現在価格の+-x%の範囲に収まる確率が正規分布の1Sigma(68.3%)であるという事。
+
+let numberOfValueInOneYear = 0; // ヒストリカル ヴォラティリティーの算出期間(1年間)に相当する値の個数。
+let numberOfValueInOneDay = 0; // 1日分に含まれる値の個数。
+let numberOfValueInPoint = 0; // チャートの足1本分に含まれる値の個数。
+let geometricRandomWalk = []; // 幾何ランダム ウォーク データの配列を生成する。
+let simpleMovingAverage5 = []; // 5要素単純移動平均の配列を生成する。
+let simpleMovingAverage21 = []; // 21要素単純移動平均の配列を生成する。
+let sample5 = 5; // 移動平均のデータ数。
+let sample21 = 21; // 移動平均のデータ数。
+let totalNumberOfValue = 0;
+
+
+let firstStopOrderTargetWidth = 0;
+let secondLimitOrderTargetWidth = 0;
+let secondStopOrderTargetWidth = 0;
+let currentAskRate = 0;
+let currentBidRate = 0;
+let spread = 0;
+
+let sellFirstStopOrderTargetBidRate = 0;
+let sellSecondLimitOrderTargetAskRate = 0;
+let sellSecondStopOrderTargetAskRate = 0;
+
+let buyFirstStopOrderTargetAskRate = 0;
+let buySecondLimitOrderTargetBidRate = 0;
+let buySecondStopOrderTargetBidRate = 0;
+
+document.getElementById( "historicalVolatilityInputArea" ).value = 10.0.toFixed( 1 ); // ヒストリカル ヴォラティリティーの初期値。
+document.getElementById( "currentAskRateInputArea" ).value = 120.000.toFixed( 3 ); // 現在の相場の初期値。
+document.getElementById( "spreadInputArea" ).value = 0.4.toFixed( 1 ); // スプレッドの初期値。
+document.getElementById( "firstStopOrderTargetWidthInputArea" ).value = 5.0.toFixed( 1 ); // 1次逆指値注文の目標値の初期値。
+document.getElementById( "secondLimitOrderTargetWidthInputArea" ).value = 10.0.toFixed( 1 ); // 2次利確注文の目標値の初期値。
+document.getElementById( "secondStopOrderTargetWidthInputArea" ).value = 7.0.toFixed( 1 ); // 2次損切り注文の目標値の初期値。
+
+
+///////////////////////////////////////////////////////
+
+
+// 画面を初期化する為の関数を宣言する。
+function initializeCanvas()
+{
+ // div要素を取得し、変数に格納して置く。
+ divElementOfCanvas = document.getElementById( "canvas1" );
+
+ // Canvas領域の大きさを書き換える。
+ canvasAreaWidth = Math.min(
+  document.documentElement.clientWidth,
+  document.documentElement.clientHeight) * 0.96;
+ divElementOfCanvas.width = canvasAreaWidth;
+
+ canvasAreaHeight = canvasAreaWidth * 0.5;
+ divElementOfCanvas.height = canvasAreaHeight;
+
+ // 実際に画面上に表示されるCanvas要素のコンテキストを作成する。
+ canvasContext = divElementOfCanvas.getContext( "2d" );
+
+ // オフスクリーン描画用のCanvas要素のコンテキストを作成する。
+ canvasLayer1 = document.createElement( "canvas" );
+ canvasLayer1.width = canvasContext.canvas.width;
+ canvasLayer1.height = canvasContext.canvas.height;
+ canvasContextLayer1 = canvasLayer1.getContext( "2d" );
+
+ canvasLayer2 = document.createElement( "canvas" );
+ canvasLayer2.width = canvasContext.canvas.width;
+ canvasLayer2.height = canvasContext.canvas.height;
+ canvasContextLayer2 = canvasLayer2.getContext( "2d" );
+
+ canvasLayer3 = document.createElement( "canvas" );
+ canvasLayer3.width = canvasContext.canvas.width;
+ canvasLayer3.height = canvasContext.canvas.height;
+ canvasContextLayer3 = canvasLayer3.getContext( "2d" );
+
+ canvasLayer4 = document.createElement( "canvas" );
+ canvasLayer4.width = canvasContext.canvas.width;
+ canvasLayer4.height = canvasContext.canvas.height;
+ canvasContextLayer4 = canvasLayer4.getContext( "2d" );
+
+ canvasForTemporaryUseLayer1 = document.createElement( "canvas" );
+ canvasForTemporaryUseLayer1.width = canvasContext.canvas.width;
+ canvasForTemporaryUseLayer1.height = canvasContext.canvas.height;
+ canvasContextForTemporaryUseLayer1 = canvasForTemporaryUseLayer1.getContext( "2d" );
+
+ // Canvas レイヤーを初期化する。
+ clearCanvasLayer();
+}
+
+
+///////////////////////////////////////////////////////
+
+
+// Canvas レイヤーを初期化する為の関数を宣言する。
+function clearCanvasLayer()
+{
+ canvasContextLayer1.clearRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height );
+ canvasContextLayer2.clearRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height );
+ canvasContextLayer3.clearRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height );
+ canvasContextLayer4.clearRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height );
+
+ // 背景のCanvas レイヤーに対して背景色の塗り潰しを行う。
+ canvasContextLayer1.fillStyle = "rgba( 8, 8, 8, 1.0 )";
+ canvasContextLayer1.fillRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height );
+
+ // チャートを描画する。
+ generateChart();
+
+ // 画面を描画する。
+ displayCanvas();
+}
+
+
+///////////////////////////////////////////////////////
+
+
+// 画面を表示する為の関数を宣言する。
+function displayCanvas()
+{
+ // 実際に画面上に表示されるCanvas要素のコンテキストに対してオフスクリーン描画用のCanvas要素の内容を転写する。
+ canvasContext.drawImage( canvasLayer1, 0, 0 ); // 背景を表示する。
+ canvasContext.drawImage( canvasLayer2, 0, 0 ); // 相場チャートを表示する。
+ canvasContext.drawImage( canvasLayer3, 0, 0 ); // グラフを表示する。
+}
+
+
+///////////////////////////////////////////////////////
+
+
+// ランダム ウォークによる為替相場チャートを生成する為の関数を宣言する。
+function generateChart()
+{
+ let i = 0;
+ let j = 0;
+ let k = 0;
+
+ // 期間を選択する為のラジオ ボタンの内、どのラジオ ボタンが押されているかを調べる。
+ let listOfRadioButton = document.getElementsByName( "radioButtonOfTimeScale" );
+ for( i = 0; i < listOfRadioButton.length; i++ )
+ {
+  if( listOfRadioButton[i].checked )
+  {
+   timeScale = listOfRadioButton[i].value;
+   break;
+  }
+ }
+
+ volatility = parseFloat( document.getElementById( "historicalVolatilityInputArea" ).value );
+ // 1年間のヒストリカル ヴォラティリティーのパーセンテージ。
+ // 期間後の価格が現在価格の+-x%の範囲に収まる確率が正規分布の1Sigma(68.3%)であるという事。
+
+ if( timeScale == "Days" )
+ {
+  totalNumberOfValue = 60 * 24 * 260; // 60分*24時間*260日。
+  // 簡単の為、年間365日の内、平日に当たる5/7日間が取引可能日とする。
+  // 計算上の値の最小単位は1分。
+  // 値の総数374400個。
+  // 表示足数260本。
+
+  totalDuration = "260 Days";
+  numberOfValueInOneYear = 60 * 24 * 260;
+  numberOfValueInOneDay = 60 * 24;
+  numberOfValueInPoint = 60 * 24;
+ }else if( timeScale == "Hours" )
+ {
+  totalNumberOfValue = 60 * 24 * 10; // 60分*24時間*10日。
+  // 計算上の値の最小単位は1分。
+  // 値の総数14400個。
+  // 表示足数240本。
+
+  totalDuration = "240 Hours(10 Days)";
+  numberOfValueInOneYear = 60 * 24 * 260;
+  numberOfValueInOneDay = 60 * 24;
+  numberOfValueInPoint = 60;
+ }else if( timeScale == "Minutes" )
+ {
+  totalNumberOfValue = 60 * 60 * 4; // 60秒*60分*4時間。
+  // 計算上の値の最小単位は1秒。
+  // 値の総数14400個。
+  // 表示足数240本。
+
+  totalDuration = "240 Minutes(4 Hours)";
+  numberOfValueInOneYear = 60 * 60 * 24 * 260;
+  numberOfValueInOneDay = 60 * 60 * 24;
+  numberOfValueInPoint = 60;
+ }else
+ {
+  alert( "Debugging is required..." );
+ }
+
+ // ヒストリカル ヴォラティリティーの1年間の変動率を計算上の値1個分の変動率に換算する。
+ // ヒストリカル ヴォラティリティーを算出期間(1年間)に相当する計算上の値の総数の平方根で除算する。
+ let scale = volatility / 100 / Math.sqrt( numberOfValueInOneYear );
+
+ geometricRandomWalk[0] = parseFloat( document.getElementById( "currentAskRateInputArea" ).value ); // 初期値。
+ let maxValue = geometricRandomWalk[0]; // 期間全体の最高値。
+ let minValue = geometricRandomWalk[0]; // 期間全体の最低値。
+ for( i = 1; i <= totalNumberOfValue; i++ )
+ {
+  geometricRandomWalk[i] = geometricRandomWalk[i - 1] * Math.exp( scale * (Math.random() * 2 - 1) );
+
+  if( maxValue < geometricRandomWalk[i] )
+  {
+   maxValue = geometricRandomWalk[i];
+  }else if( minValue >  geometricRandomWalk[i])
+  {
+   minValue = geometricRandomWalk[i];
+  }
+ }
+
+
+
+ // チャートを描画する。
+ canvasContextLayer2.clearRect( 0, 0, canvasContext.canvas.width, canvasContext.canvas.height ); // 元のCanvas レイヤーの内容を消去する。
+
+ let widthOfCanvasContext = canvasContext.canvas.width;
+ let heightOfCanvasContext = canvasContext.canvas.height;
+
+ let numberOfBar = totalNumberOfValue / numberOfValueInPoint;
+ let widthOfBar = widthOfCanvasContext / numberOfBar;
+ let heightScale = heightOfCanvasContext / (maxValue - minValue);
+ let maxValueInPoint = geometricRandomWalk[0]; // チャートの足1本分の最高値。
+ let minValueInPoint = geometricRandomWalk[0]; // チャートの足1本分の最低値。
+ let intervalOfLine = 0; // チャートの横線同士の間隔。
+ if( maxValue - minValue < 0.1 )
+ {
+  intervalOfLine = 0.01;
+ }else if( maxValue - minValue < 0.2 )
+ {
+  intervalOfLine = 0.01;
+ }else if( maxValue - minValue < 0.3 )
+ {
+  intervalOfLine = 0.02;
+ }else if( maxValue - minValue < 0.4 )
+ {
+  intervalOfLine = 0.02;
+ }else if( maxValue - minValue < 0.6 )
+ {
+  intervalOfLine = 0.02;
+ }else if( maxValue - minValue < 0.8 )
+ {
+  intervalOfLine = 0.05;
+ }else if( maxValue - minValue < 1.2 )
+ {
+  intervalOfLine = 0.05;
+ }else if( maxValue - minValue < 1.6 )
+ {
+  intervalOfLine = 0.1;
+ }else if( maxValue - minValue < 2.4 )
+ {
+  intervalOfLine = 0.1;
+ }else if( maxValue - minValue < 3.2 )
+ {
+  intervalOfLine = 0.2;
+ }else if( maxValue - minValue < 4.8 )
+ {
+  intervalOfLine = 0.2;
+ }else if( maxValue - minValue < 6.4 )
+ {
+  intervalOfLine = 0.2;
+ }else if( maxValue - minValue < 9.6 )
+ {
+  intervalOfLine = 0.5;
+ }else if( maxValue - minValue < 12.8 )
+ {
+  intervalOfLine = 0.5;
+ }else if( maxValue - minValue < 19.2 )
+ {
+  intervalOfLine = 1;
+ }else if( maxValue - minValue < 25.6 )
+ {
+  intervalOfLine = 1;
+ }else if( maxValue - minValue < 38.4 )
+ {
+  intervalOfLine = 2;
+ }else if( maxValue - minValue < 51.2 )
+ {
+  intervalOfLine = 2;
+ }else if( maxValue - minValue < 102.4 )
+ {
+  intervalOfLine = 5;
+ }else
+ {
+  intervalOfLine = 10;
+ }
+
+ let valueOfTopLine = maxValue - (maxValue % intervalOfLine); // 最高の線の値。
+ let valueOfBottomLine = minValue - (minValue % intervalOfLine) + intervalOfLine; // 最低の線の値。
+ let numberOfLine = (valueOfTopLine - valueOfBottomLine) / intervalOfLine + 1;
+ // チャートの横線の本数。
+
+ let valueOfLine = 0; // 線の値。
+
+ // チャートの横線と数値を描画する。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ for( i = 0; i < numberOfLine; i++ )
+ {
+  valueOfLine = valueOfBottomLine + i * intervalOfLine;
+
+  // 塗り潰し色の設定をする。
+  canvasContextLayer2.fillStyle = 'rgba( 32, 96, 32, 1.0 )';
+
+  // 横線を描画する。
+  canvasContextLayer2.fillRect(
+   0,
+   heightOfCanvasContext - (valueOfLine - minValue) * heightScale,
+   widthOfCanvasContext,
+   1 );
+
+  // 文字の設定をする。
+  canvasContextLayer2.fillStyle = "rgba( 255, 255, 255, 1.0 )";
+  canvasContextLayer2.font = "12px 'sans-serif'";
+  canvasContextLayer2.textAlign = "right";
+  canvasContextLayer2.textBaseline = "middle";
+
+  // 文字列を描画する。
+  canvasContextLayer2.fillText(
+   valueOfLine.toFixed( 2 ),
+   widthOfCanvasContext,
+   heightOfCanvasContext - (valueOfLine - minValue) * heightScale);
+ }
+
+ j = 0;
+ for( i = 1; i <= totalNumberOfValue; i++ )
+ {
+  if( maxValueInPoint < geometricRandomWalk[i] )
+  {
+   maxValueInPoint = geometricRandomWalk[i];
+  }else if( minValueInPoint >  geometricRandomWalk[i])
+  {
+   minValueInPoint = geometricRandomWalk[i];
+  }
+
+  // チャートの足1本分の終わり毎に描画処理を行う。
+  if( i % numberOfValueInPoint == 0 )
+  {
+   // 足の最高値から足の最低値までの髭を描画する。
+   canvasContextLayer2.fillStyle = 'rgba( 128, 128, 128, 1.0 )';
+   canvasContextLayer2.fillRect(
+    j * widthOfBar + widthOfBar / 2 - widthOfBar * 0.1,
+    heightOfCanvasContext - (maxValueInPoint - minValue) * heightScale,
+    widthOfBar * 0.2,
+    (maxValueInPoint - minValueInPoint) * heightScale );
+
+   // 足の始値から足の終値までの矩形を描画する。
+   if( geometricRandomWalk[i] > geometricRandomWalk[i - numberOfValueInPoint] )
+   {
+    canvasContextLayer2.fillStyle = 'rgba( 255, 0, 0, 1.0 )';
+   }else if( geometricRandomWalk[i] < geometricRandomWalk[i - numberOfValueInPoint] )
+   {
+    canvasContextLayer2.fillStyle = 'rgba( 0, 0, 255, 1.0 )';
+   }else
+   {
+    canvasContextLayer2.fillStyle = 'rgba( 128, 128, 128, 1.0 )';
+   }
+   canvasContextLayer2.fillRect(
+    j * widthOfBar + widthOfBar / 2 - widthOfBar * 0.3,
+    heightOfCanvasContext - (geometricRandomWalk[i] - minValue) * heightScale,
+    widthOfBar * 0.6,
+    (geometricRandomWalk[i] - geometricRandomWalk[i - numberOfValueInPoint]) * heightScale );
+
+   maxValueInPoint = geometricRandomWalk[i];
+   minValueInPoint = geometricRandomWalk[i];
+
+   // 5要素単純移動平均値を求める。
+   if( j >= sample5 - 1 )
+   {
+    simpleMovingAverage5[j] = 0;
+    for( k = 0; k < sample5; k++ )
+     {
+     simpleMovingAverage5[j] += geometricRandomWalk[i - k * numberOfValueInPoint];
+     }
+    simpleMovingAverage5[j] /= sample5;
+   }
+
+   // 21要素単純移動平均値を求める。
+   if( j >= sample21 - 1 )
+   {
+    simpleMovingAverage21[j] = 0;
+    for( k = 0; k < sample21; k++ )
+     {
+     simpleMovingAverage21[j] += geometricRandomWalk[i - k * numberOfValueInPoint];
+     }
+    simpleMovingAverage21[j] /= sample21;
+   }
+
+   j++;
+  }
+ }
+
+ // 5要素単純移動平均のグラフを描画する。
+ canvasContextLayer2.strokeStyle = "rgba( 0, 192, 192, 1.0 )";
+ canvasContextLayer2.beginPath();
+ canvasContextLayer2.moveTo(
+  (sample5 - 1) * widthOfBar + widthOfBar / 2,
+  heightOfCanvasContext - (simpleMovingAverage5[sample5 - 1] - minValue) * heightScale );
+ for( i = sample5; i < numberOfBar; i++ )
+ {
+  canvasContextLayer2.lineTo(
+   i * widthOfBar + widthOfBar / 2,
+   heightOfCanvasContext - (simpleMovingAverage5[i] - minValue) * heightScale );
+ }
+ canvasContextLayer2.stroke();
+
+ // 21要素単純移動平均のグラフを描画する。
+ canvasContextLayer2.strokeStyle = "rgba( 192, 192, 0, 1.0 )";
+ canvasContextLayer2.beginPath();
+ canvasContextLayer2.moveTo(
+  (sample21 - 1) * widthOfBar + widthOfBar / 2,
+  heightOfCanvasContext - (simpleMovingAverage21[sample21 - 1] - minValue) * heightScale );
+ for( i = sample21; i < numberOfBar; i++ )
+ {
+  canvasContextLayer2.lineTo(
+   i * widthOfBar + widthOfBar / 2,
+   heightOfCanvasContext - (simpleMovingAverage21[i] - minValue) * heightScale );
+ }
+ canvasContextLayer2.stroke();
+
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 255, 0, 255, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "top";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  "Ask rate",
+  8,
+  24 );
+
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 0, 192, 192, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "top";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  "SMA 5",
+  8,
+  48 );
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 192, 192, 0, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "top";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  "SMA 21",
+  8,
+  64 );
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 255, 0, 255, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "bottom";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  totalDuration,
+  8,
+  heightOfCanvasContext - 24 );
+
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 255, 255, 255, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "top";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  (Math.round( maxValue * 1000 ) / 1000).toFixed( 3 ),
+  2,
+  0 );
+
+ // 文字の設定をする。
+ canvasContextLayer2.save(); // 描画設定を保存する。
+ canvasContextLayer2.fillStyle = "rgba( 255, 255, 255, 1.0 )";
+ canvasContextLayer2.font = "12px 'sans-serif'";
+ canvasContextLayer2.textAlign = "left";
+ canvasContextLayer2.textBaseline = "bottom";
+
+ // 文字列を描画する。
+ canvasContextLayer2.fillText(
+  (Math.round( minValue * 1000 ) / 1000).toFixed( 3 ),
+  2,
+  heightOfCanvasContext );
+
+ canvasContextLayer2.restore(); // 描画の設定を元に戻す。
+}
+
+
+///////////////////////////////////////////////////////
+
+
+function calculateValue()
+{
+ firstStopOrderTargetWidth = parseFloat( document.getElementById( "firstStopOrderTargetWidthInputArea" ).value * 0.01 );
+ secondLimitOrderTargetWidth = parseFloat( document.getElementById( "secondLimitOrderTargetWidthInputArea" ).value * 0.01 );
+ secondStopOrderTargetWidth = parseFloat( document.getElementById( "secondStopOrderTargetWidthInputArea" ).value * 0.01 );
+ spread = parseFloat( document.getElementById( "spreadInputArea" ).value * 0.01 );
+ // 生成データはAskレートを基準にしているので売買はスプレッドを考慮する。
+
+ currentAskRate = parseFloat( document.getElementById( "currentAskRateInputArea" ).value );
+ currentBidRate = currentAskRate - spread; // BidレートはAskレートからスプレッド分を引いたものとなる。
+
+ sellFirstStopOrderTargetBidRate = currentBidRate - firstStopOrderTargetWidth;
+ sellSecondLimitOrderTargetAskRate = sellFirstStopOrderTargetBidRate - secondLimitOrderTargetWidth;
+ sellSecondStopOrderTargetAskRate = sellFirstStopOrderTargetBidRate + secondStopOrderTargetWidth;
+
+ // 小数点以下3桁目を四捨五入して小数点以下2桁固定の数値とする。
+ document.getElementById( "sellFirstStopOrderTargetBidRateOutputArea" ).value = (Math.round( sellFirstStopOrderTargetBidRate * 1000 ) / 1000).toFixed( 2 );
+ document.getElementById( "sellSecondLimitOrderTargetAskRateOutputArea" ).value = (Math.round( sellSecondLimitOrderTargetAskRate * 1000 ) / 1000).toFixed( 2 );
+ document.getElementById( "sellSecondStopOrderTargetAskRateOutputArea" ).value = (Math.round( sellSecondStopOrderTargetAskRate * 1000 ) / 1000).toFixed( 2 );
+
+ buyFirstStopOrderTargetAskRate = currentAskRate + firstStopOrderTargetWidth;
+ buySecondLimitOrderTargetBidRate = buyFirstStopOrderTargetAskRate + secondLimitOrderTargetWidth;
+ buySecondStopOrderTargetBidRate = buyFirstStopOrderTargetAskRate - secondStopOrderTargetWidth;
+
+ // 小数点以下3桁目を四捨五入して小数点以下2桁固定の数値とする。
+ document.getElementById( "buyFirstStopOrderTargetAskRateOutputArea" ).value = (Math.round( buyFirstStopOrderTargetAskRate * 1000 ) / 1000).toFixed( 2 );
+ document.getElementById( "buySecondLimitOrderTargetBidRateOutputArea" ).value = (Math.round( buySecondLimitOrderTargetBidRate * 1000 ) / 1000).toFixed( 2 );
+ document.getElementById( "buySecondStopOrderTargetBidRateOutputArea" ).value = (Math.round( buySecondStopOrderTargetBidRate * 1000 ) / 1000).toFixed( 2 );
+}
+
+
+///////////////////////////////////////////////////////
+
+
+function simulateProfitAndLoss()
+{
+ calculateValue(); // 値を計算する。
+
+ // 最初にIFO(IFDOCO)注文を発注し、その後は1日毎に同じ条件での発注を繰り返す。
+ // 期間の終わりまでの損益を計算する。
+
+ let i = 0;
+ let j = 0;
+ let index = 0;
+
+ let numberOfSellFirstStopOrderContract = 0; // 売りの逆指値1次注文の約定数。
+ let numberOfBuyFirstStopOrderContract = 0; // 買いの逆指値1次注文の約定数。
+
+ let numberOfSellSecondLimitOrderContract = 0; // 売りの利確2次注文の約定数。
+ let numberOfSellSecondStopOrderContract = 0; // 売りの損切り2次注文の約定数。
+ let numberOfBuySecondLimitOrderContract = 0; // 買いの利確2次注文の約定数。
+ let numberOfBuySecondStopOrderContract = 0; // 買いの損切り2次注文の約定数。
+
+ let profit = 0; // 利益。
+ let loss = 0; // 損失。
+ // 売買単位は1通貨単位とする。
+
+ let sellFirstStopOrder = []; // 売りの逆指値の1次注文。
+ let buyFirstStopOrder = []; // 買いの逆指値の1次注文。
+ let sellSecondOrder = []; // 売りの2次注文。
+ let buySecondOrder = []; // 買いの2次注文。
+
+ for( i = 0; i < totalNumberOfValue; i++ )
+ {
+  currentAskRate = geometricRandomWalk[i];
+  currentBidRate = geometricRandomWalk[i] - spread; // BidレートはAskレートからスプレッド分を引いたものとなる。
+
+
+  // 1日毎に逆指値の1次注文を行う。
+  if( i % numberOfValueInOneDay == 0 )
+  {
+   index = sellFirstStopOrder.length;
+   sellFirstStopOrder[index] = {
+    targetBidRate: 0,
+    secondLimitOrderTargetWidth: 0,
+    secondStopOrderTargetWidth: 0
+   };
+   sellFirstStopOrder[index].targetBidRate = currentBidRate - firstStopOrderTargetWidth;
+   sellFirstStopOrder[index].secondLimitOrderTargetWidth = secondLimitOrderTargetWidth; // 今後トレール注文機能を実装する場合に備える。
+   sellFirstStopOrder[index].secondStopOrderTargetWidth = secondStopOrderTargetWidth;
+
+   index = buyFirstStopOrder.length;
+   buyFirstStopOrder[index] = {
+    targetAskRate: 0,
+    secondLimitOrderTargetWidth: 0,
+    secondStopOrderTargetWidth: 0
+   };
+   buyFirstStopOrder[index].targetAskRate = currentAskRate + firstStopOrderTargetWidth;
+   buyFirstStopOrder[index].secondLimitOrderTargetWidth = secondLimitOrderTargetWidth; // 今後トレール注文機能を実装する場合に備える。
+   buyFirstStopOrder[index].secondStopOrderTargetWidth = secondStopOrderTargetWidth;
+  }
+
+
+
+  // 毎回注文を処理する。
+
+
+  // 目標値に達して約定した逆指値の1次注文があればOCOの2次注文を行う。
+
+  for( j = 0; j < sellFirstStopOrder.length; j++ )
+  {
+   if( sellFirstStopOrder[j].targetBidRate >= currentBidRate )
+   {
+    numberOfSellFirstStopOrderContract++; // 約定を計数する。
+    index = sellSecondOrder.length;
+    sellSecondOrder[index] = {
+     limitOrderTargetAskRate: 0,
+     stopOrderTargetAskRate: 0,
+     contractedPrice: 0
+     };
+    sellSecondOrder[index].limitOrderTargetAskRate = currentBidRate - sellFirstStopOrder[j].secondLimitOrderTargetWidth; // 利確の指値注文を行う。
+    sellSecondOrder[index].stopOrderTargetAskRate = currentBidRate + sellFirstStopOrder[j].secondStopOrderTargetWidth; // 損切りの逆指値注文を行う。
+    sellSecondOrder[index].contractedPrice = currentBidRate; // 約定価格を記録する。
+    sellFirstStopOrder.splice( j, 1 ); // 約定した1次注文1つを配列から削除して後ろの要素を前に詰める。
+   }
+  }
+
+  for( j = 0; j < buyFirstStopOrder.length; j++ )
+  {
+   if( buyFirstStopOrder[j].targetAskRate <= currentAskRate )
+   {
+    numberOfBuyFirstStopOrderContract++; // 約定を計数する。
+    index = buySecondOrder.length;
+    buySecondOrder[index] = {
+     limitOrderTargetBidRate: 0,
+     stopOrderTargetBidRate: 0,
+     contractedPrice: 0
+     };
+    buySecondOrder[index].limitOrderTargetBidRate = currentAskRate + buyFirstStopOrder[j].secondLimitOrderTargetWidth; // 利確の指値注文を行う。
+    buySecondOrder[index].stopOrderTargetBidRate = currentAskRate - buyFirstStopOrder[j].secondStopOrderTargetWidth; // 損切りの逆指値注文を行う。
+    buySecondOrder[index].contractedPrice = currentAskRate; // 約定価格を記録する。
+    buyFirstStopOrder.splice( j, 1 ); // 約定した注文1つを配列から削除して後ろの要素を前に詰める。
+   }
+  }
+
+
+  // 目標値に達したOCOの2次注文があれば決済する。
+
+  for( j = 0; j < sellSecondOrder.length; j++ )
+  {
+   if( sellSecondOrder[j].limitOrderTargetAskRate >= currentAskRate )
+   {
+    // 利確の目標値に達していたら決済する。
+    profit += sellSecondOrder[j].contractedPrice - currentAskRate; // 利確した分だけ利益を更新する。
+    numberOfSellSecondLimitOrderContract++; // 約定を計数する。
+    sellSecondOrder.splice( j, 1 ); // 約定した2次注文1つを配列から削除して後ろの要素を前に詰める。
+   }else if( sellSecondOrder[j].stopOrderTargetAskRate <= currentAskRate )
+   {
+    // 損切り基準値に達していたら決済する。
+    loss += sellSecondOrder[j].contractedPrice - currentAskRate; // 損切りした分だけ損益値を更新する。
+    numberOfSellSecondStopOrderContract++; // 約定を計数する。
+    sellSecondOrder.splice( j, 1 ); // 約定した2次注文1つを配列から削除して後ろの要素を前に詰める。
+   }
+  }
+
+  for( j = 0; j < buySecondOrder.length; j++ )
+  {
+   if( buySecondOrder[j].limitOrderTargetBidRate <= currentBidRate )
+   {
+    // 利確の目標値に達していたら決済する。
+    profit += currentBidRate - buySecondOrder[j].contractedPrice; // 利確した分だけ損益値を更新する。
+    numberOfBuySecondLimitOrderContract++; // 約定を計数する。
+    buySecondOrder.splice( j, 1 ); // 約定した2次注文1つを配列から削除して後ろの要素を前に詰める。
+   }else if( buySecondOrder[j].stopOrderTargetBidRate >= currentBidRate )
+   {
+    // 損切り基準値に達していたら決済する。
+    loss += currentBidRate - buySecondOrder[j].contractedPrice; // 損切りした分だけ損益値を更新する。
+    numberOfBuySecondStopOrderContract++; // 約定を計数する。
+    buySecondOrder.splice( j, 1 ); // 約定した2次注文1つを配列から削除して後ろの要素を前に詰める。
+   }
+  }
+ }
+
+ // シミュレーション結果を表示する。
+ let outputText = "[Total Profits and Loss]: ";
+ outputText += "Profits: " + profit.toFixed( 3 ) + " Loss: " + loss.toFixed( 3 ) + " x trading amounts\n";
+ outputText += "[Number of First Stop Order Contracts]: ";
+ outputText += "Sell: " + numberOfSellFirstStopOrderContract + " Buy: " + numberOfBuyFirstStopOrderContract + "\n";
+ outputText += "[Number of Second Limit Order Contracts]: ";
+ outputText += "Sell: " + numberOfSellSecondLimitOrderContract + " Buy: " + numberOfBuySecondLimitOrderContract + "\n";
+ outputText += "[Number of Second Stop Order Contracts]: ";
+ outputText += "Sell: " + numberOfSellSecondStopOrderContract + " Buy: " + numberOfBuySecondStopOrderContract;
+
+ document.getElementById( "textOutputArea" ).value = outputText;
+}
+
+
+///////////////////////////////////////////////////////
+
+
+let buttounToGenerateChart = document.getElementById( "buttounToGenerateChart" );
+buttounToGenerateChart.addEventListener( "click", clearCanvasLayer, false);
+
+let buttounToCalculateValue = document.getElementById( "buttounToCalculateValue" );
+buttounToCalculateValue.addEventListener( "click", calculateValue, false);
+
+let buttounToSimulateProfitAndLoss = document.getElementById( "buttounToSimulateProfitAndLoss" );
+buttounToSimulateProfitAndLoss.addEventListener( "click", simulateProfitAndLoss, false);
+
+
+///////////////////////////////////////////////////////
+
+
+// HTMLが読み込み終わった直後に初期化する。
+document.addEventListener( "DOMContentLoaded", function(){setTimeout( initializeCanvas, 500 );});
+
+
+///////////////////////////////////////////////////////
+
+
+window["initializeCanvas"] = initializeCanvas;
+window["clearCanvasLayer"] = clearCanvasLayer;
+window["displayCanvas"] = displayCanvas;
+window["generateChart"] = generateChart;
+window["calculateValue"] = calculateValue;
+window["simulateProfitAndLoss"] = simulateProfitAndLoss;
+
+
+///////////////////////////////////////////////////////
+} // モジュール全体のスコープの終わり。
+new globalObjectOfThisProgram(); // コンストラクターを実行する。
+
+
+</script>
+</body>
+</html>
